@@ -2,20 +2,24 @@
 pragma solidity ^0.8.0;
 
 contract Voting {
-    address public owner; // The owner of the contract
+    address public owner;
 
     struct Vote {
         string candidate;
         string electionId;
     }
 
-    mapping(string => mapping(string => bool)) private hasVoted; // electionId => uid => bool
+    // Track voting
+    mapping(string => mapping(string => bool)) private hasVoted; // electionId => uid => bool (wthether particular uid has voted in this election)
+    mapping(string => mapping(string => uint256)) private voteCount; // electionId => candidate => count (number of votes for this candidate in this election)
+    mapping(string => Vote) private votes; // UID => Vote (candidate, electionId)
 
-    // Vote count per candidate per election
-    mapping(string => mapping(string => uint256)) private voteCount; // electionId => candidate => count
+    // Track elections and candidates
+    string[] private electionIds;
+    mapping(string => bool) private electionExists;
 
-    // Store individual votes (optional)
-    mapping(string => Vote) private votes; // key: UID
+    mapping(string => string[]) private candidatesPerElection; // electionId => candidates[]
+    mapping(string => mapping(string => bool)) private isCandidateTracked; // electionId => candidate => tracked?
 
     event VoteCast(string indexed electionId, string indexed uid);
 
@@ -28,26 +32,45 @@ contract Voting {
         owner = msg.sender;
     }
 
-    // Only the owner can call this function to cast a vote
     function vote(string memory electionId, string memory uid, string memory candidate) public onlyOwner {
+        if (!electionExists[electionId]) {
+            electionExists[electionId] = true;
+            electionIds.push(electionId);
+        }
+
         require(!hasVoted[electionId][uid], "Already voted in this election");
 
-        // Record the vote
+        if (!isCandidateTracked[electionId][candidate]) {
+            isCandidateTracked[electionId][candidate] = true;
+            candidatesPerElection[electionId].push(candidate);
+        }
+
         votes[uid] = Vote(candidate, electionId);
         hasVoted[electionId][uid] = true;
         voteCount[electionId][candidate] += 1;
 
-        // Emit an event to indicate successful voting
         emit VoteCast(electionId, uid);
     }
 
-    // Get vote count for a candidate in a given election
-    function getVoteCount(string memory electionId, string memory candidate) public view returns (uint256) {
+    function getVoteCount(string memory electionId, string memory candidate) public view onlyOwner returns (uint256) {
+        require(electionExists[electionId], "Election ID does not exist");
         return voteCount[electionId][candidate];
     }
 
-    // Check if UID has voted (private function)
-    function hasUserVoted(string memory electionId, string memory uid) private view returns (bool) {
-        return hasVoted[electionId][uid];
+    function getAllVoteCounts(string memory electionId) public view onlyOwner returns (string[] memory, uint256[] memory) {
+        require(electionExists[electionId], "Election ID does not exist");
+
+        string[] memory candidates = candidatesPerElection[electionId];
+        uint256[] memory counts = new uint256[](candidates.length);
+
+        for (uint i = 0; i < candidates.length; i++) {
+            counts[i] = voteCount[electionId][candidates[i]];
+        }
+
+        return (candidates, counts);
     }
-} 
+
+    function getAllElections() public view returns (string[] memory) {
+        return electionIds;
+    }
+}
